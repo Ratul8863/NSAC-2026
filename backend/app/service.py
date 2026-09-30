@@ -427,9 +427,15 @@ def run_scenario(
             "channel": "Simulated dashboard alert. No SMS or external notification is sent.",
         }
 
-    route_note = "Lower estimated exposure along this path. It is not a guarantee of safe passage."
+    passage = "This route is a model output and is not a guarantee of safe passage."
     if aware_nodes == short_nodes:
-        route_note = "At this intensity the shorter road also has the lower estimated risk. Field checks are still required."
+        route_note = (
+            "The shorter direct route remains acceptable under the current modeled hazard. " + passage
+        )
+    else:
+        route_note = (
+            "The risk-aware route avoids higher-hazard valley segments. " + passage
+        )
 
     return {
         "meta": {
@@ -437,7 +443,12 @@ def run_scenario(
             "aoi": "Rasuwa, Nepal",
             "model": "Interpretable susceptibility model with a conditional cascade",
             "rainfall_source": "Reconstructed Rasuwa monsoon field. Live NASA GPM IMERG is the intended operational source.",
-            "disclaimer": "Decision-support estimate. Not an official warning. A risk score is not a guarantee that an event will occur.",
+            "disclaimer": (
+                "Decision-support prototype. Outputs are model estimates from reconstructed rainfall "
+                "and scenario inputs, not a live warning or a census. NASA GPM IMERG is the intended "
+                "live rainfall source and is not connected here. A risk score does not mean a disaster "
+                "will occur, and routes need field verification."
+            ),
             "limitations": LIMITATIONS,
             "weights": {key: round(value, 3) for key, value in weights.items()},
             "rainfall_scale": round(rainfall_scale, 3),

@@ -6,6 +6,8 @@ official warnings.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
@@ -153,3 +155,8 @@ def rescue_route(body: ScenarioRequest) -> dict:
     if result["route"]["destination_id"] not in {zone["id"] for zone in result["zones"]}:
         raise HTTPException(status_code=404, detail="Unknown destination")
     return result["route"]
+
+
+_DIST = Path(__file__).resolve().parents[2] / "frontend" / "dist"
+if _DIST.is_dir():
+    app.frontend("/", directory=str(_DIST), fallback="index.html")

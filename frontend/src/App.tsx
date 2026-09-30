@@ -2,17 +2,17 @@ import { useEffect, useState } from "react";
 import { fetchScenario } from "./api";
 import { Inspector } from "./components/Inspector";
 import { RiskMap, riskColor } from "./components/RiskMap";
-import { formatCount, formatPct } from "./format";
+import { formatPct } from "./format";
 import type { LayerId, Scenario, TabId } from "./types";
 
-const LAYERS: { id: LayerId; label: string; swatch: string }[] = [
-  { id: "landslide", label: "Landslide", swatch: "#f97316" },
-  { id: "flood", label: "Flood", swatch: "#38bdf8" },
-  { id: "debris", label: "Debris flow", swatch: "#c2410c" },
-  { id: "priority", label: "Priority", swatch: "#fb7185" },
+const LAYERS: { id: LayerId; label: string }[] = [
+  { id: "landslide", label: "Landslide" },
+  { id: "flood", label: "Flood" },
+  { id: "debris", label: "Debris flow" },
+  { id: "priority", label: "Priority" },
 ];
 
-const TABS: { id: TabId; label: string }[] = [
+const MODES: { id: TabId; label: string }[] = [
   { id: "forecast", label: "Forecast" },
   { id: "simulation", label: "Simulation" },
   { id: "response", label: "Response" },
@@ -27,6 +27,14 @@ const WEIGHT_FIELDS = [
   ["accessibility", "Access"],
 ] as const;
 
+const DEFAULT_WEIGHTS = {
+  hazard: 30,
+  population: 25,
+  isolation: 20,
+  infrastructure: 15,
+  accessibility: 10,
+};
+
 export function App() {
   const [rainfallScale, setRainfallScale] = useState(1);
   const [upstreamRelease, setUpstreamRelease] = useState(false);
@@ -35,17 +43,15 @@ export function App() {
   const [tab, setTab] = useState<TabId>("forecast");
   const [layer, setLayer] = useState<LayerId>("landslide");
   const [selectedId, setSelectedId] = useState("syabrubesi");
-  const [weights, setWeights] = useState({
-    hazard: 30,
-    population: 25,
-    isolation: 20,
-    infrastructure: 15,
-    accessibility: 10,
-  });
+  const [weights, setWeights] = useState(DEFAULT_WEIGHTS);
   const [scenario, setScenario] = useState<Scenario | null>(null);
   const [baseline, setBaseline] = useState<Scenario | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [attempt, setAttempt] = useState(0);
+  const [viewToken, setViewToken] = useState(0);
+  const [leftOpen, setLeftOpen] = useState(() => window.matchMedia("(min-width: 801px)").matches);
+  const [rightOpen, setRightOpen] = useState(() => window.matchMedia("(min-width: 801px)").matches);
 
   const activeReplay = tab === "replay" ? replayStep : null;
 
@@ -58,29 +64,24 @@ export function App() {
         upstream_release: upstreamRelease,
         destination_id: destinationId,
         replay_step: activeReplay,
-        weights: {
-          hazard: weights.hazard,
-          population: weights.population,
-          isolation: weights.isolation,
-          infrastructure: weights.infrastructure,
-          accessibility: weights.accessibility,
-        },
+        weights: { ...weights },
       },
       controller.signal,
     )
       .then((next) => {
         setScenario(next);
-        setError(null);
+        setError(false);
       })
       .catch((reason: unknown) => {
         if (reason instanceof DOMException && reason.name === "AbortError") return;
-        setError("Start the API on port 8080, then reload this page.");
+        console.error(reason);
+        setError(true);
       })
       .finally(() => {
         if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
-  }, [rainfallScale, upstreamRelease, destinationId, activeReplay, weights]);
+  }, [rainfallScale, upstreamRelease, destinationId, activeReplay, weights, attempt]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -90,40 +91,71 @@ export function App() {
         upstream_release: false,
         destination_id: destinationId,
         replay_step: null,
-        weights: {
-          hazard: weights.hazard,
-          population: weights.population,
-          isolation: weights.isolation,
-          infrastructure: weights.infrastructure,
-          accessibility: weights.accessibility,
-        },
+        weights: { ...weights },
       },
       controller.signal,
     )
       .then(setBaseline)
-      .catch(() => undefined);
+      .catch((reason: unknown) => {
+        if (reason instanceof DOMException && reason.name === "AbortError") return;
+        console.error(reason);
+      });
     return () => controller.abort();
-  }, [destinationId, weights]);
+  }, [destinationId, weights, attempt]);
 
-  const zone = scenario?.zones.find((item) => item.id === selectedId) ?? scenario?.zones[0];
+  const zone = scenario?.zones.find((item) => item.id === selectedId) ?? null;
+  const scaleNow = activeReplay ? scenario?.meta.rainfall_scale ?? rainfallScale : rainfallScale;
+  const scenarioTitle = scenarioLabel(scaleNow, upstreamRelease, activeReplay ? scenario?.replay?.label ?? "Replay" : null);
+  const routesDiffer =
+    scenario !== null &&
+    scenario.route.shortest.node_ids.join(">") !== scenario.route.risk_aware.node_ids.join(">");
+  const showRouteCard = scenario !== null && (routesDiffer || tab === "response" || tab === "simulation");
+
+  function fitMap() {
+    setViewToken((value) => value + 1);
+  }
+
+  function resetScenario() {
+    setRainfallScale(1);
+    setUpstreamRelease(false);
+    setDestinationId("syabrubesi");
+    setReplayStep("t24");
+    setTab("forecast");
+    setLayer("landslide");
+    setSelectedId("syabrubesi");
+    setWeights(DEFAULT_WEIGHTS);
+    setViewToken((value) => value + 1);
+  }
 
   return (
     <div className="shell">
       <header className="topbar">
         <div className="brand">
-          <p className="eyebrow">Earth-observation decision support</p>
           <h1>HIMALAYA-SHIELD</h1>
+          <p className="subtitle">AI Disaster Intelligence • Rasuwa Prototype</p>
         </div>
-        <ol className="stages">
-          {["Detect", "Forecast", "Simulate", "Prioritize", "Respond"].map((stage) => (
-            <li key={stage} className={stageActive(tab, stage) ? "on" : ""}>
-              {stage}
-            </li>
-          ))}
-        </ol>
-        <div className="aoi">
+        <div className="mode-block">
+          <button className="drawer-toggle" type="button" aria-expanded={leftOpen} onClick={() => setLeftOpen((open) => !open)}>
+            {leftOpen ? "Close" : "Controls"}
+          </button>
+          <nav className="modes" aria-label="Decision modes">
+            {MODES.map((mode) => (
+              <button
+                key={mode.id}
+                type="button"
+                className={tab === mode.id ? "on" : ""}
+                aria-pressed={tab === mode.id}
+                onClick={() => setTab(mode.id)}
+              >
+                {mode.label}
+              </button>
+            ))}
+          </nav>
+        </div>
+        <div className="status">
           <span>Rasuwa, Nepal</span>
-          <small>Estimate · not an official warning</small>
+          <span className="pill">Reconstructed data</span>
+          <strong>{scenarioTitle}</strong>
         </div>
       </header>
 
@@ -137,93 +169,120 @@ export function App() {
         </button>
       )}
 
-      <div className="workspace">
-        <aside className="panel controls">
-          <section>
-            <h2>Storm intensity</h2>
-            <div className="scale-readout">
-              <strong>{Math.round((activeReplay ? scenario?.meta.rainfall_scale ?? rainfallScale : rainfallScale) * 100)}%</strong>
-              <span>of the reconstructed monsoon pulse</span>
-            </div>
-            <input
-              type="range"
-              min={0.5}
-              max={1.7}
-              step={0.05}
-              value={rainfallScale}
-              disabled={activeReplay !== null}
-              onChange={(event) => setRainfallScale(Number(event.target.value))}
-              aria-label="Storm intensity"
-            />
-            <div className="presets">
-              <button type="button" onClick={() => setRainfallScale(1)} disabled={activeReplay !== null}>
+      {error && (
+        <div className="service-error" role="alert">
+          <p>Decision-support service is temporarily unavailable.</p>
+          <button type="button" onClick={() => setAttempt((value) => value + 1)}>
+            Retry
+          </button>
+        </div>
+      )}
+
+      <div className={`workspace${leftOpen ? "" : " collapse-left"}${rightOpen ? "" : " collapse-right"}`}>
+        {leftOpen && (
+          <button className="sheet-scrim" type="button" aria-label="Close controls" onClick={() => setLeftOpen(false)} />
+        )}
+        <aside className={leftOpen ? "panel controls" : "panel controls is-closed"}>
+          <button className="rail-open" type="button" onClick={() => setLeftOpen(true)}>
+            Controls
+          </button>
+          <div className="panel-body">
+          <div className="panel-bar">
+            <h2>Controls</h2>
+            <button type="button" onClick={() => setLeftOpen(false)}>
+              Minimize
+            </button>
+          </div>
+          <section className="control-card">
+            <h2>Scenario</h2>
+            <div className="segment" role="group" aria-label="Rainfall scenario">
+              <button
+                type="button"
+                className={presetOn(rainfallScale, 1, activeReplay) ? "on" : ""}
+                aria-pressed={presetOn(rainfallScale, 1, activeReplay)}
+                disabled={activeReplay !== null}
+                onClick={() => setRainfallScale(1)}
+              >
                 Baseline
               </button>
-              <button type="button" onClick={() => setRainfallScale(1.3)} disabled={activeReplay !== null}>
+              <button
+                type="button"
+                className={presetOn(rainfallScale, 1.3, activeReplay) ? "on" : ""}
+                aria-pressed={presetOn(rainfallScale, 1.3, activeReplay)}
+                disabled={activeReplay !== null}
+                onClick={() => setRainfallScale(1.3)}
+              >
                 +30%
               </button>
-              <button type="button" onClick={() => setRainfallScale(1.6)} disabled={activeReplay !== null}>
+              <button
+                type="button"
+                className={presetOn(rainfallScale, 1.6, activeReplay) ? "on" : ""}
+                aria-pressed={presetOn(rainfallScale, 1.6, activeReplay)}
+                disabled={activeReplay !== null}
+                onClick={() => setRainfallScale(1.6)}
+              >
                 Extreme
               </button>
             </div>
-            {activeReplay && <p className="note">The replay timeline is setting rainfall for this view.</p>}
+            <button
+              type="button"
+              className={upstreamRelease ? "switch on" : "switch"}
+              aria-pressed={upstreamRelease}
+              onClick={() => setUpstreamRelease((value) => !value)}
+            >
+              <i />
+              Upstream release
+            </button>
+            <label className="field compact">
+              Fine tune 72-hour storm
+              <input
+                type="range"
+                min={0.5}
+                max={1.7}
+                step={0.05}
+                value={rainfallScale}
+                disabled={activeReplay !== null}
+                onChange={(event) => setRainfallScale(Number(event.target.value))}
+                aria-label="Storm intensity"
+              />
+            </label>
+            <p className="scale-readout">
+              <strong>{Math.round(scaleNow * 100)}%</strong>
+              <span>72-hour pulse</span>
+            </p>
+            {activeReplay && <p className="note">Replay is setting rainfall.</p>}
           </section>
 
-          <label className="checkline">
-            <input
-              type="checkbox"
-              checked={upstreamRelease}
-              onChange={(event) => setUpstreamRelease(event.target.checked)}
-            />
-            Upstream water release
-          </label>
-
+          <section className="control-card">
           <label className="field">
             Destination
-            <select value={destinationId} onChange={(event) => setDestinationId(event.target.value)}>
-              {(scenario?.zones ?? []).map((item) => (
+            <select value={destinationId} onChange={(event) => setDestinationId(event.target.value)} aria-label="Destination">
+              {(scenario?.zones ?? [{ id: "syabrubesi", name: "Syabrubesi" }]).map((item) => (
                 <option key={item.id} value={item.id}>
                   {item.name}
                 </option>
               ))}
-              {scenario === null && <option value="syabrubesi">Syabrubesi</option>}
             </select>
+            <span className="note">From Dhunche to {destinationName(scenario, destinationId)}</span>
           </label>
+          </section>
 
-          <section>
-            <h2>Map layer</h2>
-            <div className="layers">
+          <section className="control-card">
+            <h2>Layer</h2>
+            <div className="segment layers" role="group" aria-label="Risk layer">
               {LAYERS.map((item) => (
                 <button
                   key={item.id}
                   type="button"
                   className={layer === item.id ? "layer on" : "layer"}
+                  aria-pressed={layer === item.id}
                   onClick={() => setLayer(item.id)}
                 >
-                  <i style={{ background: item.swatch }} />
                   {item.label}
                 </button>
               ))}
             </div>
           </section>
-
-          {tab === "replay" && (
-            <section>
-              <h2>Timeline</h2>
-              <div className="presets">
-                {(scenario?.replay_steps ?? []).map((step) => (
-                  <button
-                    key={step.id}
-                    type="button"
-                    className={replayStep === step.id ? "on" : ""}
-                    onClick={() => setReplayStep(step.id)}
-                  >
-                    {step.label}
-                  </button>
-                ))}
-              </div>
-            </section>
-          )}
 
           <details>
             <summary>Priority weights</summary>
@@ -243,12 +302,19 @@ export function App() {
             <p className="note">Weights are rescaled to sum to 1 on the server.</p>
           </details>
 
-          <section className="zone-list">
-            <h2>Zones</h2>
+          <section className="control-card zone-list">
+            <h2>Places</h2>
             <ul>
               {(scenario?.zones ?? []).map((item) => (
                 <li key={item.id}>
-                  <button type="button" className={item.id === selectedId ? "on" : ""} onClick={() => setSelectedId(item.id)}>
+                  <button
+                    type="button"
+                    className={item.id === selectedId ? "on" : ""}
+                    onClick={() => {
+                      setSelectedId(item.id);
+                      if (window.matchMedia("(max-width: 800px)").matches) setLeftOpen(false);
+                    }}
+                  >
                     <i style={{ background: riskColor(layer === "priority" ? item.priority : item.dominant) }} />
                     <span>{item.name}</span>
                     <b>{formatPct(layer === "priority" ? item.priority : layerValue(item, layer))}</b>
@@ -257,6 +323,7 @@ export function App() {
               ))}
             </ul>
           </section>
+          </div>
         </aside>
 
         <main className="map-stage">
@@ -264,54 +331,108 @@ export function App() {
             <RiskMap
               scenario={scenario}
               layer={layer}
-              selectedId={selectedId}
+              selectedId={zone?.id ?? selectedId}
               showObserved={tab === "replay"}
+              viewToken={viewToken}
+              layoutKey={`${tab}-${leftOpen ? "L" : "l"}-${rightOpen ? "R" : "r"}`}
               onSelect={setSelectedId}
             />
           ) : (
-            <div className="map-hold">{error ?? "Loading the Rasuwa scenario…"}</div>
+            <div className="map-hold" aria-busy={loading}>
+              {error ? "Decision-support service is temporarily unavailable." : "Loading Rasuwa decision support…"}
+            </div>
           )}
+          <div className="map-toolbar">
+            <button type="button" onClick={fitMap}>
+              Fit Rasuwa
+            </button>
+            <button type="button" onClick={resetScenario}>
+              Reset
+            </button>
+          </div>
           <div className="legend">
             <span><i style={{ background: "#2dd4bf" }} /> Low</span>
             <span><i style={{ background: "#eab308" }} /> Moderate</span>
             <span><i style={{ background: "#f97316" }} /> High</span>
             <span><i style={{ background: "#fb7185" }} /> Critical</span>
+            <span><i className="dash" /> Direct route</span>
             <span><i className="line" /> Risk-aware route</span>
           </div>
+          {showRouteCard && scenario && <RouteCard scenario={scenario} routesDiffer={routesDiffer} />}
+          {tab === "replay" && (
+            <ol className="replay-bar">
+              {(scenario?.replay_steps ?? []).map((step) => (
+                <li key={step.id}>
+                  <button type="button" className={replayStep === step.id ? "on" : ""} aria-pressed={replayStep === step.id} onClick={() => setReplayStep(step.id)}>
+                    {step.label.replace(" h", "h")}
+                  </button>
+                </li>
+              ))}
+            </ol>
+          )}
           {loading && scenario && <div className="updating">Updating</div>}
         </main>
 
-        <aside className="panel inspector">
-          <div className="tabs">
-            {TABS.map((item) => (
-              <button key={item.id} type="button" className={tab === item.id ? "on" : ""} onClick={() => setTab(item.id)}>
-                {item.label}
-              </button>
-            ))}
+        <aside className={rightOpen ? "panel inspector" : "panel inspector is-closed"}>
+          <button className="rail-open" type="button" onClick={() => setRightOpen(true)}>
+            Intelligence
+          </button>
+          <div className="panel-body">
+          <div className="panel-bar">
+            <h2>Intelligence</h2>
+            <button type="button" onClick={() => setRightOpen(false)}>
+              Minimize
+            </button>
           </div>
-          {error && <p className="error">{error}</p>}
           {scenario && zone ? (
             <Inspector tab={tab} scenario={scenario} baseline={baseline} zone={zone} />
+          ) : loading && !error ? (
+            <div className="skeleton" aria-busy="true">
+              <span />
+              <span />
+              <span />
+            </div>
           ) : (
-            <p className="note">Waiting for the scenario service.</p>
+            <p className="note">Select a zone on the map to inspect risk intelligence.</p>
           )}
+          </div>
         </aside>
       </div>
 
       <footer className="kpis">
         <Kpi label="Critical zones" value={scenario ? String(scenario.kpis.critical_zones) : "—"} />
-        <Kpi label="Population exposure" value={scenario ? formatCount(scenario.kpis.population_exposed) : "—"} />
-        <Kpi label="Buildings" value={scenario ? formatCount(scenario.kpis.buildings_exposed) : "—"} />
+        <Kpi label="Population exposure" value={scenario ? scenario.kpis.population_exposed.toLocaleString("en-US") : "—"} />
+        <Kpi label="Buildings" value={scenario ? scenario.kpis.buildings_exposed.toLocaleString("en-US") : "—"} />
         <Kpi label="Roads at risk" value={scenario ? String(scenario.kpis.roads_at_risk) : "—"} />
         <Kpi label="Bridges at risk" value={scenario ? String(scenario.kpis.bridges_at_risk) : "—"} />
         <Kpi label="Schools" value={scenario ? String(scenario.kpis.schools_exposed) : "—"} />
         <Kpi label="Hospitals" value={scenario ? String(scenario.kpis.hospitals_exposed) : "—"} />
       </footer>
-      <p className="disclaimer">
-        {scenario?.meta.disclaimer ??
-          "Decision-support estimate. Not an official warning. A risk score is not a guarantee that an event will occur."}
+      <p className="disclaimer" title={scenario?.meta.disclaimer}>
+        Reconstructed rainfall · scenario estimates · NASA GPM IMERG is not connected · route needs field verification
       </p>
     </div>
+  );
+}
+
+function RouteCard({ scenario, routesDiffer }: { scenario: Scenario; routesDiffer: boolean }) {
+  const route = scenario.route;
+  return (
+    <aside className={routesDiffer ? "route-float" : "route-float single"} aria-live="polite">
+      {routesDiffer && (
+        <div>
+          <h4>Direct route</h4>
+          <p>{route.shortest.distance_km} km</p>
+          <p>{formatPct(route.shortest.max_hazard)} peak hazard</p>
+        </div>
+      )}
+      <div>
+        <h4>{routesDiffer ? "Risk-aware route" : "Lower estimated-risk route"}</h4>
+        <p>{route.risk_aware.distance_km} km</p>
+        <p>{formatPct(route.risk_aware.max_hazard)} peak hazard</p>
+      </div>
+      <p className="note">{route.note}</p>
+    </aside>
   );
 }
 
@@ -324,16 +445,31 @@ function Kpi({ label, value }: { label: string; value: string }) {
   );
 }
 
-function layerValue(zone: { landslide: number; flood: number; debris: number; priority: number }, layer: LayerId): number {
+function layerValue(zone: { landslide: number; flood: number; debris: number }, layer: LayerId): number {
   if (layer === "landslide") return zone.landslide;
   if (layer === "flood") return zone.flood;
   if (layer === "debris") return zone.debris;
-  return zone.priority;
+  return zone.landslide;
 }
 
-function stageActive(tab: TabId, stage: string): boolean {
-  if (tab === "forecast") return stage === "Forecast";
-  if (tab === "simulation") return stage === "Simulate";
-  if (tab === "response") return stage === "Prioritize" || stage === "Respond";
-  return stage === "Detect";
+function presetOn(scale: number, target: number, replay: string | null): boolean {
+  return replay === null && Math.abs(scale - target) < 0.001;
 }
+
+function scenarioLabel(scale: number, upstream: boolean, replay: string | null): string {
+  if (replay) return replay;
+  const base =
+    Math.abs(scale - 1) < 0.001
+      ? "Baseline"
+      : Math.abs(scale - 1.3) < 0.001
+        ? "+30% rainfall"
+        : Math.abs(scale - 1.6) < 0.001
+          ? "Extreme"
+          : `Storm ${Math.round(scale * 100)}%`;
+  return upstream ? `${base} · upstream release` : base;
+}
+
+function destinationName(scenario: Scenario | null, id: string): string {
+  return scenario?.zones.find((zone) => zone.id === id)?.name ?? "Syabrubesi";
+}
+

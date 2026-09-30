@@ -19,9 +19,9 @@ OBSERVED_EVENT_ZONES = ("ramche", "syabrubesi", "timure", "chilime")
 
 REPLAY_STEPS = (
     {"id": "t72", "label": "T−72 h", "hours_before": 72, "rainfall_scale": 0.45},
-    {"id": "t48", "label": "T−48 h", "hours_before": 48, "rainfall_scale": 0.62},
-    {"id": "t24", "label": "T−24 h", "hours_before": 24, "rainfall_scale": 0.80},
-    {"id": "t6", "label": "T−6 h", "hours_before": 6, "rainfall_scale": 0.92},
+    {"id": "t48", "label": "T−48 h", "hours_before": 48, "rainfall_scale": 0.51},
+    {"id": "t24", "label": "T−24 h", "hours_before": 24, "rainfall_scale": 0.62},
+    {"id": "t6", "label": "T−6 h", "hours_before": 6, "rainfall_scale": 0.78},
     {"id": "event", "label": "Event", "hours_before": 0, "rainfall_scale": 1.0},
 )
 

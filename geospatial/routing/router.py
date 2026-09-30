@@ -15,7 +15,9 @@ from heapq import heappop, heappush
 
 HAZARD_THRESHOLD = 0.50
 # Kilometres added for each unit of hazard above the threshold.
-HAZARD_PENALTY_KM = 150.0
+# 100 km keeps the 12 km valley road cheaper at the default storm and lets the
+# ridge road win once that valley edge's hazard rises at +30% rainfall.
+HAZARD_PENALTY_KM = 100.0
 
 
 @dataclass(frozen=True)
