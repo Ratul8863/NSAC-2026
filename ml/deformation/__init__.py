@@ -1,0 +1,1 @@
+"""Deformation indicator notes."""
